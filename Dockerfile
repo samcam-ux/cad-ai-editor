@@ -1,4 +1,6 @@
 # CAD AI Editor - Production Docker image
+# NOTE: This Dockerfile expects a FLAT structure (all files at repo root),
+# matching the GitHub web upload layout.
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -15,14 +17,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Python deps
-COPY backend/requirements.txt .
+# Python deps (flat: requirements.txt at root)
+COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt \
     && pip3 install --no-cache-dir gunicorn
 
-# App code
-COPY backend/ ./backend/
-COPY frontend/ ./frontend/
+# App code (flat: all .py at root, index.html at root)
+COPY *.py ./
+COPY index.html ./frontend/
+COPY *.md ./
 
 # ODA File Converter - see setup-oda.sh
 # 1. Download .deb from https://www.opendesign.com/guestfiles/oda_file_converter
@@ -33,7 +36,7 @@ COPY frontend/ ./frontend/
 # ENV PATH="/usr/bin:$PATH"
 
 # Create dirs
-RUN mkdir -p uploads outputs && chmod 777 uploads outputs
+RUN mkdir -p uploads outputs frontend && chmod 777 uploads outputs
 
 # Env defaults
 ENV APP_URL=""
@@ -42,8 +45,8 @@ ENV STRIPE_WEBHOOK_SECRET=""
 
 EXPOSE 8099
 
-# Run with gunicorn (production) 
-CMD ["gunicorn", "backend.main:app", \
+# Run with gunicorn (flat: main:app, not backend.main:app)
+CMD ["gunicorn", "main:app", \
      "--workers", "2", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--bind", "0.0.0.0:8099", \
