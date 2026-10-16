@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
-DB_PATH = Path(__file__).parent.parent / "app.db"
+DB_PATH = Path(__file__).parent / "app.db"  # flat structure
 
 
 def _db():
