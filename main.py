@@ -18,9 +18,10 @@ from fastapi import Request, Header
 
 app = FastAPI(title="CAD AI Editor", version="0.1.0")
 
-BASE = Path(__file__).parent.parent
+BASE = Path(__file__).parent  # flat structure: all files at root
 UPLOADS = BASE / "uploads"
 OUTPUTS = BASE / "outputs"
+FRONTEND = BASE / "frontend"  # index.html copied here by Dockerfile
 UPLOADS.mkdir(exist_ok=True)
 OUTPUTS.mkdir(exist_ok=True)
 
@@ -325,5 +326,6 @@ async def upwork_send_deliverable(req: UpworkSendRequest,
     }
 
 
-# Serve frontend
-app.mount("/", StaticFiles(directory=str(BASE / "frontend"), html=True), name="static")
+# Serve frontend (flat: index.html at root, also copied to frontend/ by Docker)
+_frontend_dir = FRONTEND if FRONTEND.exists() else BASE
+app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="static")
