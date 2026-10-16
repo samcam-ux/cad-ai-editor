@@ -20,7 +20,10 @@ WORKDIR /app
 # Python deps (flat: requirements.txt at root)
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt \
-    && pip3 install --no-cache-dir gunicorn
+    && pip3 install --no-cache-dir gunicorn \
+    && python3 -c "import pymupdf; print('pymupdf OK', pymupdf.__version__)" \
+    && python3 -c "import ezdxf; print('ezdxf OK', ezdxf.__version__)" \
+    && python3 -c "import fastapi; print('fastapi OK')"
 
 # App code (flat: all .py at root, index.html at root)
 COPY *.py ./

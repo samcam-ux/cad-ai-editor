@@ -1,5 +1,8 @@
 """Redline PDF analyzer - converts reviewer markups to CAD edit instructions."""
-import pymupdf
+try:
+    import pymupdf
+except ImportError:
+    import fitz as pymupdf  # fallback for older installs
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
