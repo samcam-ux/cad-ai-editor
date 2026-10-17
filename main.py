@@ -10,7 +10,9 @@ import uuid
 from editor import CADEditor
 from redline import analyze_redline
 from converter import dwg_to_dxf
-from upwork import build_proposal, get_search_task, get_apply_task, get_download_task, get_send_task, DEFAULT_SEARCH
+from upwork import (build_proposal, calculate_bid, DEFAULT_SEARCH,
+                     get_search_checklist, get_apply_checklist,
+                     get_download_checklist, get_send_checklist)
 from auth import init_db, register, login, get_user_by_token, use_credit
 from billing import create_checkout_session, handle_webhook, is_configured
 from auth import PLANS
@@ -216,23 +218,24 @@ async def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
-# ============ Upwork Integration ============
+# ============ Upwork Manual-Assist ============
+# NOTE: Upwork's Terms of Use prohibit automated access (bots/scrapers).
+# These endpoints provide drafting assistance only. All Upwork interactions
+# happen manually in the user's own browser.
 
 class UpworkSearchRequest(BaseModel):
     keywords: str = DEFAULT_SEARCH["keywords"]
-    limit: int = 10
 
 
 @app.post("/api/upwork/search-task")
 async def upwork_search_task(req: UpworkSearchRequest,
                              authorization: str = Header(None)):
-    """Generate a browser task to search Upwork for jobs.
-    Returns the task prompt - execute via browser session."""
+    """Return a manual checklist for finding CAD jobs on Upwork."""
     get_current_user(authorization) if authorization else None
     return {
-        "task": get_search_task(req.keywords, req.limit),
-        "note": "Execute this in a logged-in Upwork browser session. "
-                "Results come back as JSON for the next step.",
+        "checklist": get_search_checklist(req.keywords),
+        "note": "Search manually in your own browser. Upwork's Terms of Use "
+                "prohibit automated access.",
     }
 
 
@@ -248,11 +251,11 @@ class UpworkProposalRequest(BaseModel):
 @app.post("/api/upwork/proposal")
 async def upwork_proposal(req: UpworkProposalRequest,
                           authorization: str = Header(None)):
-    """Generate a tailored proposal + browser task to submit it.
-    Bid auto-calculates to 30% below client's budget unless overridden."""
+    """Generate a tailored cover letter + bid for manual submission.
+    Bid auto-calculates to 30% below client's budget unless overridden.
+    The user copies the letter and submits on Upwork themselves."""
     user = get_current_user(authorization) if authorization else {}
-    from upwork import UpworkJob, calculate_bid
-    from upwork import build_proposal as _build_proposal
+    from upwork import UpworkJob
 
     # Auto-bid: 30% below offer
     bid = req.bid_amount
@@ -274,16 +277,15 @@ async def upwork_proposal(req: UpworkProposalRequest,
         "website": "yardhousedrafting.com",
         "bio_extra": "Licensed drafting professional, 100+ permitted projects.",
     }
-    cover_letter = _build_proposal(job, profile)
+    cover_letter = build_proposal(job, profile)
     return {
         "cover_letter": cover_letter,
         "bid_amount": bid,
         "auto_bid": auto_bid,
         "discount": "30% below listed budget" if auto_bid else None,
-        "browser_task": get_apply_task(
-            req.job_url, cover_letter, bid, req.timeline),
-        "note": "Review the cover letter, then execute the browser task "
-                "to submit. Requires your approval per proposal.",
+        "checklist": get_apply_checklist(cover_letter, bid, req.timeline),
+        "note": "Copy the cover letter and submit manually on Upwork. "
+                "Automated submission violates Upwork's Terms of Use.",
     }
 
 
@@ -291,13 +293,12 @@ async def upwork_proposal(req: UpworkProposalRequest,
 async def upwork_download_task(contract_id: str,
                                contract_url: str = "",
                                authorization: str = Header(None)):
-    """Generate browser task to download markups from a contract."""
+    """Return a manual checklist for downloading markups from a contract."""
     get_current_user(authorization) if authorization else None
-    url = contract_url or f"https://www.upwork.com/ab/contracts/{contract_id}"
     return {
-        "task": get_download_task(url),
-        "note": "Downloaded files can be fed directly into /api/analyze "
-                "for AI redline processing.",
+        "checklist": get_download_checklist(),
+        "note": "Download files manually in your browser, then upload the "
+                "markup PDF via /api/analyze for AI redline processing.",
     }
 
 
@@ -311,18 +312,17 @@ class UpworkSendRequest(BaseModel):
 @app.post("/api/upwork/send-deliverable")
 async def upwork_send_deliverable(req: UpworkSendRequest,
                                   authorization: str = Header(None)):
-    """Generate browser task to upload deliverable + message client."""
+    """Return a manual checklist for uploading a deliverable + client message.
+    The user performs the upload in their own Upwork browser session."""
     get_current_user(authorization) if authorization else None
     out_path = OUTPUTS / f"{req.file_job_id}_revised.dxf"
     if not out_path.exists():
         raise HTTPException(404, "Revised file not found. Apply edits first.")
-    url = req.contract_url or \
-        f"https://www.upwork.com/ab/contracts/{req.contract_id}"
     return {
-        "task": get_send_task(url, str(out_path), req.message),
+        "checklist": get_send_checklist(out_path.name, req.message),
         "file": str(out_path),
-        "note": "Execute in logged-in Upwork browser session. "
-                "Requires your approval before sending to client.",
+        "note": "Upload and message manually on Upwork. Automated actions "
+                "violate Upwork's Terms of Use.",
     }
 
 

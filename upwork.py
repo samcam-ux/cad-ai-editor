@@ -1,19 +1,20 @@
-"""Upwork integration via browser automation.
+"""Upwork manual-assist tools.
 
-Upwork does not offer a public API for freelancers to search/apply to jobs.
-This module uses controlled browser sessions to:
-1. Search for CAD/drafting jobs
-2. Submit proposals (with user approval)
-3. Monitor active contracts for markup files
-4. Download markups → feed into redline AI
-5. Upload revised deliverables + message client for approval
+Upwork's Terms of Use prohibit automated access (robots, scrapers, or any
+technology other than their interface) without written permission. This module
+therefore does NOT automate Upwork. It provides in-app drafting assistance:
 
-Requires: Upwork credentials in Secure Vault, user approval per action.
+1. Bid calculator (30% below client budget, rounded to nearest $5)
+2. Cover letter generator tailored to the job
+3. Step-by-step manual checklists for searching, applying, downloading
+   markups, and sending deliverables — all done by the user in their own
+   browser.
+
+No credentials are stored. No browser automation is performed.
 """
-import json
-from pathlib import Path
+import re
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 
 @dataclass
@@ -28,14 +29,6 @@ class UpworkJob:
     skills: List[str]
 
 
-@dataclass
-class UpworkContract:
-    contract_id: str
-    title: str
-    client: str
-    status: str
-
-
 # Job search criteria for CAD/drafting work
 DEFAULT_SEARCH = {
     "keywords": "AutoCAD drafting architectural plans",
@@ -44,14 +37,10 @@ DEFAULT_SEARCH = {
 }
 
 
-import re
-
-
 def parse_budget(budget_str: str) -> Optional[float]:
     """Extract numeric budget from strings like '$500', '$1,200', '$50/hr'."""
     if not budget_str:
         return None
-    # Remove commas, find first dollar amount
     clean = budget_str.replace(",", "")
     match = re.search(r'\$?(\d+(?:\.\d{2})?)', clean)
     if match:
@@ -68,8 +57,7 @@ def calculate_bid(budget_str: str, discount_pct: float = 30.0) -> Optional[str]:
     if budget is None:
         return None
     bid = budget * (1 - discount_pct / 100)
-    # Round to nearest $5 for clean numbers
-    bid = round(bid / 5) * 5
+    bid = round(bid / 5) * 5  # round to nearest $5
     return f"${int(bid)}"
 
 
@@ -96,83 +84,65 @@ Best,
 {freelancer_profile.get('website', '')}"""
 
 
-# Browser automation task templates
-# These are sent to browser.spawn_task for execution
+# Manual checklists — the user performs these steps in their own browser.
+# No automation; Upwork's ToS requires human interaction via their interface.
 
-SEARCH_TASK = """On Upwork (upwork.com), you are logged in as a freelancer.
+SEARCH_CHECKLIST = """Find CAD jobs on Upwork manually:
 
-Search for jobs with these criteria:
-- Keywords: {keywords}
-- Category: Engineering & Architecture
-
-For the top {limit} results, extract:
-- Job title
-- Job URL
-- Budget/rate
-- Posted time
-- Number of proposals
-- First 200 chars of description
-- Required skills
-
-Return as JSON array. Do NOT apply to any jobs."""
-
-APPLY_TASK = """On Upwork (upwork.com), you are logged in as a freelancer.
-
-Go to this job URL: {job_url}
-
-Submit a proposal with:
-- Cover letter (provided below)
-- Bid amount: {bid_amount}
-- Delivery timeline: {timeline}
-
-COVER LETTER:
-{cover_letter}
-
-Do NOT submit until all fields are filled. Take a screenshot of the
-confirmation page after submitting. Report the proposal URL."""
-
-DOWNLOAD_MARKUPS_TASK = """On Upwork (upwork.com), you are logged in as a freelancer.
-
-Go to the contract messages page: {contract_url}
-
-1. Find all file attachments in the message thread (PDFs, DWGs, images)
-2. Download each attachment
-3. Report: filename, file type, which message it was in, and the message text
-
-Do NOT send any messages. Only download and report."""
-
-SEND_DELIVERABLE_TASK = """On Upwork (upwork.com), you are logged in as a freelancer.
-
-Go to the contract page: {contract_url}
-
-1. Upload this file as a deliverable: {file_path}
-   (Use the contract's "Submit Work" or file upload in messages)
-2. Send this message to the client:
-
-[[CLIENT_MESSAGE]]
-
-3. Report confirmation that the file was uploaded and message sent.
-Do NOT mark the contract complete unless explicitly instructed."""
+1. Go to upwork.com → Find Work → search: "{keywords}"
+2. Filter: Category = Engineering & Architecture, Job type = Fixed-price
+3. For each promising job, note: title, URL, budget, posted time,
+   proposal count, and required skills
+4. Paste the job details into the Proposal Drafting tab here to generate
+   your cover letter and bid."""
 
 
-def get_search_task(keywords: str, limit: int = 10) -> str:
-    return SEARCH_TASK.format(keywords=keywords, limit=limit)
+APPLY_CHECKLIST = """Submit your proposal on Upwork manually:
+
+1. Open the job posting in your browser
+2. Click "Submit a Proposal"
+3. Paste the cover letter below into the proposal field
+4. Enter your bid amount: {bid_amount}
+5. Set your delivery timeline: {timeline}
+6. Review and submit
+
+COVER LETTER (copy everything below this line):
+{cover_letter}"""
 
 
-def get_apply_task(job_url: str, cover_letter: str,
-                   bid_amount: str, timeline: str) -> str:
-    return APPLY_TASK.format(
-        job_url=job_url, cover_letter=cover_letter,
-        bid_amount=bid_amount, timeline=timeline,
-    )
+DOWNLOAD_CHECKLIST = """Download client markups from Upwork manually:
+
+1. Open your contract messages page in your browser
+2. Find all file attachments in the thread (PDFs, DWGs, images)
+3. Download each attachment to your computer
+4. Upload the markup PDF here via the Analyze tab for AI redline processing"""
 
 
-def get_download_task(contract_url: str) -> str:
-    return DOWNLOAD_MARKUPS_TASK.format(contract_url=contract_url)
+SEND_CHECKLIST = """Send your deliverable on Upwork manually:
+
+1. Open your contract page in your browser
+2. Upload the revised file: {file_name}
+   (Use "Submit Work" or attach in messages)
+3. Paste this message to the client:
+
+{message}
+
+4. Send. Do NOT mark the contract complete unless the client approves."""
 
 
-def get_send_task(contract_url: str, file_path: str, message: str) -> str:
-    task = SEND_DELIVERABLE_TASK.format(
-        contract_url=contract_url, file_path=file_path,
-    )
-    return task.replace("[[CLIENT_MESSAGE]]", message)
+def get_search_checklist(keywords: str) -> str:
+    return SEARCH_CHECKLIST.format(keywords=keywords)
+
+
+def get_apply_checklist(cover_letter: str, bid_amount: str,
+                        timeline: str) -> str:
+    return APPLY_CHECKLIST.format(
+        cover_letter=cover_letter, bid_amount=bid_amount, timeline=timeline)
+
+
+def get_download_checklist() -> str:
+    return DOWNLOAD_CHECKLIST
+
+
+def get_send_checklist(file_name: str, message: str) -> str:
+    return SEND_CHECKLIST.format(file_name=file_name, message=message)
